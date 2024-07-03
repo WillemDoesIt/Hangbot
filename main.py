@@ -56,6 +56,13 @@ async def on_ready():
 async def an_event_handler(event: MemberAdd):
     print(f"Someone joined with name: {event.member.user.username}")
     # Create a category for the new member named after then
+    category = await bot.guilds[0].create_category(name=event.member.user.username)
+    # Create a channel for the new member called public in the category
+    public_channel = await bot.guilds[0].create_text_channel(name="public", category=category)
+    private_channel = await bot.guilds[0].create_text_channel(name="private", category=category)
+    
+    # TODO: Adjust the permissions of the public and private channels
+
     
 
 @slash_command(name='ping')
