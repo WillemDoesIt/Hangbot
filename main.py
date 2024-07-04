@@ -120,8 +120,8 @@ async def sync_data(guild):
 
     # Save the updated data to data.json
     save_data({
-        "categories": channels_data,
-        "users": user_data
+        "users": user_data,
+        "categories": channels_data
     })
 
 # `/create_channel` Slash Command
