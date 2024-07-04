@@ -98,17 +98,14 @@ async def sync_data(guild):
                 user_id = category.name.lower()  # Assuming category name is the user_id
                 if user_id in channels_data:
                     if channel.name not in channels_data[user_id]["channels"]:
-                        # Determine channel type (public/private based on naming convention)
-                        channel_type = "private" if "private" in channel.name else "public"
-
                         # Initialize channel data
                         channels_data[user_id]["channels"][channel.name] = {
                             "id": str(channel.id),
-                            "type": channel_type,
-                            "reactions": True,  # Example settings, adjust as needed
-                            "comments": True,
-                            "member_ids": [],  # Placeholder for member IDs, adjust as needed
-                            "roles": []  # Placeholder for roles, adjust as needed
+                            "type": "public", # TODO: find how to detect public vs private
+                            "reactions": True, # TODO: find how to detect if reactions are enabled
+                            "comments": True, # TODO: find how to detect if comments are enabled
+                            "member_ids": [], # TODO: find how to detect member ids
+                            "roles": [] # TODO: find how to detect roles
                         }
                 else:
                     # Create a new entry for this user's category if it doesn't exist
@@ -117,7 +114,6 @@ async def sync_data(guild):
                         "channels": {}
                     }
  
-    # Fetch members from the guild
     # Use guild.members to get the cached member list
     for member in guild.members:
         user_data[str(member.id)] = member.display_name
@@ -127,14 +123,6 @@ async def sync_data(guild):
         "categories": channels_data,
         "users": user_data
     })
-
-    print("User and Channel data synced.")
-
-
-
-
-
-
 
 # `/create_channel` Slash Command
 @slash_command(name="create_channel", description="Make your own private channel!")
@@ -152,7 +140,7 @@ async def create_channel(ctx: SlashContext, name: str):
     print("Syncing current data for redundancy...")
     try:
         await sync_data(guild)
-        print("Data synced successfully!")
+        print("User and Channel Data synced.")
     except Exception as e:
         print(f"Error syncing data: {e}")
         return
@@ -167,8 +155,8 @@ async def create_channel(ctx: SlashContext, name: str):
 
         # Create the channel in the user's category
         channel = await guild.create_text_channel(name=name, category=category_id)
-        await ctx.send(f"Channel '{name}' created successfully!")
-        print(f"Channel '{name}' created successfully!")
+        await ctx.send(f"Channel '{name}' created.")
+        print(f"Channel '{name}' created.")
     else:
         await ctx.send("No personal category found. Please contact staff to troubleshoot.")
         print("No personal category found. Failed to create channel.")
@@ -176,7 +164,7 @@ async def create_channel(ctx: SlashContext, name: str):
     print("Syncing new channels data...")
     try:
         await sync_data(guild)
-        print("Data synced successfully!")
+        print("User and Channel Data synced.")
     except Exception as e:
         print(f"Error syncing Data: {e}")
 
