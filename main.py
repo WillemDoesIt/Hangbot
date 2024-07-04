@@ -5,6 +5,12 @@ import json
 
 bot = Client(intents=Intents.GUILD_MEMBERS | Intents.DEFAULT)
 
+# Function to load and save channels.json data
+def sync_channels_data(channels_data):
+    #TODO: make this work
+
+    pass
+
 # When the discord bot is ready it will do all in this function
 @listen()
 async def on_ready():
@@ -73,6 +79,11 @@ async def an_event_handler(event: MemberAdd):
     '''
     # TODO: set permissions for category and channels
 
+# Load channels.json data
+def load_channels_data():
+    with open('channels.json', 'r') as f:
+        return json.load(f)
+
 # `/create_channel` Slash Command
 @slash_command(name="create_channel", description="Make your own private channel!")
 @slash_option(
@@ -81,18 +92,29 @@ async def an_event_handler(event: MemberAdd):
     opt_type=OptionType.STRING,
 )
 async def create_channel(ctx: SlashContext, name: str):
-    # TODO: get category
+    sync_channels_data()
+
     guild = ctx.guild
+    username = str(ctx.author.username)  # Assuming ctx.author.id gives the user's Discord ID
+    print(f"Username: {username}")
 
-    # TODO: find a way to get category id
-    categoryid = 000 # testing if specific id's work
+    # Load channels.json data
+    channels_data = load_channels_data()
+    print(f"Channels data: {channels_data}")
 
-    if categoryid:
+    # Check if the user's entry exists in channels.json
+    if username in channels_data:
+        user_data = channels_data[username]
+        print(f"User data: {user_data}")
+        category_id = user_data["category_id"]
+
         # Create the channel in the user's category
-        channel = await guild.create_text_channel(name=name, category=categoryid)
+        channel = await guild.create_text_channel(name=name, category=category_id)
         await ctx.send(f"Channel '{name}' created successfully!")
     else:
         await ctx.send("No personal category found. Please contact staff to troubleshoot.")
+    
+    sync_channels_data()
 
 # Run the bot using the token from token.json
 PATH = "token.json"
