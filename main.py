@@ -1,17 +1,18 @@
 import asyncio
-from interactions import Client, Intents, listen, slash_command
+from interactions import Client, Intents, SlashContext, OptionType, listen, slash_command, slash_option
 from interactions.api.events import MemberAdd
 import json
 
 bot = Client(intents=Intents.GUILD_MEMBERS | Intents.DEFAULT)
 
-# When the discord bot is read it will do all in this function
+# When the discord bot is ready it will do all in this function
 @listen()
 async def on_ready():
     print("Ready")
     print(f"This bot is owned by {bot.owner}")
 
     # Function to simulate a member join event
+    '''
     async def simulate_member_add():
         from interactions.api.models.user import User
         from interactions.api.models.guild import Member
@@ -50,16 +51,16 @@ async def on_ready():
         )
         
         await an_event_handler(event)
-
+        
     await simulate_member_add()
+    '''
 
 # When Member joins
 @listen(MemberAdd)
 async def an_event_handler(event: MemberAdd):
-
     print(f"Someone joined with name: {event.member.user.username}")
 
-    # Create a category for the new member named after then
+    # Create a category for the new member named after their username
     category = await bot.guilds[0].create_category(name=event.member.user.username)
 
     # Create a channel for the new member called public in the category
@@ -72,17 +73,26 @@ async def an_event_handler(event: MemberAdd):
     '''
     # TODO: set permissions for category and channels
 
-# TODO: `/create_channel` Slash Command
-# TODO: `/rename_channel` Slash Command
-# TODO: `/delete_channel` Slash Command
-# TODO: `/follow`
-# TODO: `/unfollow`
-# TODO: `/generate_rss`
+# `/create_channel` Slash Command
+@slash_command(name="create_channel", description="Make your own private channel!")
+@slash_option(
+    name="name",
+    description="Name of the channel",
+    opt_type=OptionType.STRING,
+)
+async def create_channel(ctx: SlashContext, name: str):
+    # TODO: get category
+    guild = ctx.guild
 
-# Example slash command
-@slash_command(name='ping')
-async def ping(ctx):
-    await ctx.send('Pong')
+    # TODO: find a way to get category id
+    categoryid = 000 # testing if specific id's work
+
+    if categoryid:
+        # Create the channel in the user's category
+        channel = await guild.create_text_channel(name=name, category=categoryid)
+        await ctx.send(f"Channel '{name}' created successfully!")
+    else:
+        await ctx.send("No personal category found. Please contact staff to troubleshoot.")
 
 # Run the bot using the token from token.json
 PATH = "token.json"
