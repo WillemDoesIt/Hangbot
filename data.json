@@ -1,0 +1,44 @@
+{
+    "categories": {
+        "1234567890": {
+            "category_id": "1257866829788086312",
+            "channels": {
+                "public": {
+                    "id": "1257866831012560926",
+                    "type": "public",
+                    "reactions": true,
+                    "comments": true
+                },
+                "private": {
+                    "id": "1257866832166125628",
+                    "type": "private",
+                    "member_ids": [
+                        "505897723174846466",
+                        "681998181340545081"
+                    ],
+                    "roles": [],
+                    "reactions": true,
+                    "comments": true
+                }
+            }
+        },
+        "505897723174846466": {
+            "category_id": "1257866865846386789",
+            "channels": {
+                "test": {
+                    "id": "1257866866685378582",
+                    "type": "public",
+                    "reactions": true,
+                    "comments": true
+                }
+            }
+        }
+    },
+    "users": {
+        "1234567890": "TestUser",
+        "505897723174846466": "w:\u0131\u0131e\u028d",
+        "681998181340545081": "imonsay",
+        "815000368676864011": "conciouschaos",
+        "1171328839033561088": "HangBot. Nightly"
+    }
+}

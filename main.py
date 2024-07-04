@@ -1,15 +1,9 @@
 import asyncio
-from interactions import Client, Intents, SlashContext, OptionType, listen, slash_command, slash_option
+from interactions import Client, Intents, SlashContext, OptionType, listen, slash_command, slash_option, GuildCategory
 from interactions.api.events import MemberAdd
 import json
 
 bot = Client(intents=Intents.GUILD_MEMBERS | Intents.DEFAULT)
-
-# Function to load and save channels.json data
-def sync_channels_data(channels_data):
-    #TODO: make this work
-
-    pass
 
 # When the discord bot is ready it will do all in this function
 @listen()
@@ -79,10 +73,68 @@ async def an_event_handler(event: MemberAdd):
     '''
     # TODO: set permissions for category and channels
 
-# Load channels.json data
-def load_channels_data():
-    with open('channels.json', 'r') as f:
-        return json.load(f)
+# Function to load data.json data
+def load_data():
+    with open('data.json', 'r') as file:
+        return json.load(file)
+
+# Function to save data.json data
+def save_data(data):
+    with open('data.json', 'w') as file:
+        json.dump(data, file, indent=4)
+
+# Function to sync channels and users data
+async def sync_data(guild):
+    channels_data = load_data()["categories"]
+    user_data = load_data()["users"]
+
+    # Fetch all channels
+    channels = await guild.fetch_channels()
+    
+    for channel in channels:
+        if isinstance(channel, GuildCategory):
+            category = channel.category
+            if category:
+                user_id = category.name.lower()  # Assuming category name is the user_id
+                if user_id in channels_data:
+                    if channel.name not in channels_data[user_id]["channels"]:
+                        # Determine channel type (public/private based on naming convention)
+                        channel_type = "private" if "private" in channel.name else "public"
+
+                        # Initialize channel data
+                        channels_data[user_id]["channels"][channel.name] = {
+                            "id": str(channel.id),
+                            "type": channel_type,
+                            "reactions": True,  # Example settings, adjust as needed
+                            "comments": True,
+                            "member_ids": [],  # Placeholder for member IDs, adjust as needed
+                            "roles": []  # Placeholder for roles, adjust as needed
+                        }
+                else:
+                    # Create a new entry for this user's category if it doesn't exist
+                    channels_data[user_id] = {
+                        "category_id": str(category.id),
+                        "channels": {}
+                    }
+ 
+    # Fetch members from the guild
+    # Use guild.members to get the cached member list
+    for member in guild.members:
+        user_data[str(member.id)] = member.display_name
+
+    # Save the updated data to data.json
+    save_data({
+        "categories": channels_data,
+        "users": user_data
+    })
+
+    print("User and Channel data synced.")
+
+
+
+
+
+
 
 # `/create_channel` Slash Command
 @slash_command(name="create_channel", description="Make your own private channel!")
@@ -92,29 +144,41 @@ def load_channels_data():
     opt_type=OptionType.STRING,
 )
 async def create_channel(ctx: SlashContext, name: str):
-    sync_channels_data()
-
     guild = ctx.guild
-    username = str(ctx.author.username)  # Assuming ctx.author.id gives the user's Discord ID
-    print(f"Username: {username}")
 
-    # Load channels.json data
-    channels_data = load_channels_data()
-    print(f"Channels data: {channels_data}")
+    user_id = str(ctx.author.user.id)  # Assuming ctx.author.id gives the user's Discord ID
+    print(f'Creating the channel "{name}" for user_id: {user_id}...')
 
-    # Check if the user's entry exists in channels.json
-    if username in channels_data:
-        user_data = channels_data[username]
-        print(f"User data: {user_data}")
+    print("Syncing current data for redundancy...")
+    try:
+        await sync_data(guild)
+        print("Data synced successfully!")
+    except Exception as e:
+        print(f"Error syncing data: {e}")
+        return
+
+    # Load data.json data
+    channels_data = load_data()["categories"]
+
+    # Check if the user's entry exists in data.json
+    if user_id in channels_data:
+        user_data = channels_data[user_id]
         category_id = user_data["category_id"]
 
         # Create the channel in the user's category
         channel = await guild.create_text_channel(name=name, category=category_id)
         await ctx.send(f"Channel '{name}' created successfully!")
+        print(f"Channel '{name}' created successfully!")
     else:
         await ctx.send("No personal category found. Please contact staff to troubleshoot.")
+        print("No personal category found. Failed to create channel.")
     
-    sync_channels_data()
+    print("Syncing new channels data...")
+    try:
+        await sync_data(guild)
+        print("Data synced successfully!")
+    except Exception as e:
+        print(f"Error syncing Data: {e}")
 
 # Run the bot using the token from token.json
 PATH = "token.json"

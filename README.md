@@ -9,7 +9,6 @@ The goal of this project is to create a fully functional social media platform t
 
 despite the name private channels are not yet private.
 
-
 ## End Goal
 On join you are given a Personal category and a Public and Private channel (feed) that you can write messages in. No one else can write in your channels.
 
