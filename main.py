@@ -85,44 +85,67 @@ def save_data(data):
 
 # Function to sync channels and users data
 async def sync_data(guild):
-    channels_data = load_data()["categories"]
-    user_data = load_data()["users"]
+    print("Syncing data...")
+    data = load_data()
+    channels_data = data.get("categories", {})
+    user_data = data.get("users", {})
+    username_to_user_id = {username.lower(): user_id for user_id, username in user_data.items()}
 
     # Fetch all channels
+    print("Fetching channels...")
     channels = await guild.fetch_channels()
+    print(f"Fetched {len(channels)} channels.\n")
+
+    print(f"Channel data: {channels}\n")
     
+    print("Processing channels...\n")
     for channel in channels:
+        print(f"    Processing channel '{channel.name}'...")
         if isinstance(channel, GuildCategory):
-            category = channel.category
-            if category:
-                user_id = category.name.lower()  # Assuming category name is the user_id
-                if user_id in channels_data:
-                    if channel.name not in channels_data[user_id]["channels"]:
-                        # Initialize channel data
-                        channels_data[user_id]["channels"][channel.name] = {
-                            "id": str(channel.id),
-                            "type": "public", # TODO: find how to detect public vs private
-                            "reactions": True, # TODO: find how to detect if reactions are enabled
-                            "comments": True, # TODO: find how to detect if comments are enabled
-                            "member_ids": [], # TODO: find how to detect member ids
-                            "roles": [] # TODO: find how to detect roles
-                        }
-                else:
-                    # Create a new entry for this user's category if it doesn't exist
+            print(f"        Processing category '{channel.name}'...")            
+            # turn the category which is a username into the user_id of that user
+            potential_username = str(channel.name)
+            print(f"            `potential_username`: {potential_username}")
+            print(f"            `user_data`: {username_to_user_id}")
+            if potential_username in username_to_user_id:
+                username = potential_username
+                print(f"                verified username '{username}'")
+                user_id = username_to_user_id[username]
+                print(f"                verified user_id '{user_id}'")
+                if user_id not in channels_data:
                     channels_data[user_id] = {
-                        "category_id": str(category.id),
+                        "category_id": str(channel.id),
                         "channels": {}
                     }
- 
-    # Use guild.members to get the cached member list
+                for sub_channel in channels:
+                    if sub_channel.parent_id == channel.id:
+                        print(f"                    Adding sub-channel '{sub_channel.name}' to user '{user_id}'...")
+                        channels_data[user_id]["channels"][sub_channel.name] = {
+                            "id": str(sub_channel.id),
+                            "type": "public",  # Placeholder, replace with actual detection
+                            "reactions": True,  # Placeholder, replace with actual detection
+                            "comments": True,  # Placeholder, replace with actual detection
+                            "member_ids": [],  # Placeholder, replace with actual detection
+                            "roles": []  # Placeholder, replace with actual detection
+                        }
+            print(f"        Processed category.")
+        print(f"    Processed channel.")
+
+
+    # Fetch members from the guild
+    print("Fetching members...")
     for member in guild.members:
-        user_data[str(member.id)] = member.display_name
+        user_data[str(member.id)] = member.username
+        print(f"    Added member '{member.username}' (ID: {member.id}) to user data.")
 
     # Save the updated data to data.json
+    print("Saving data to data.json...")
     save_data({
         "users": user_data,
         "categories": channels_data
     })
+
+    print("Sync complete.")
 
 # `/create_channel` Slash Command
 @slash_command(name="create_channel", description="Make your own private channel!")
