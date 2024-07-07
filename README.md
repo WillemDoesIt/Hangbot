@@ -19,9 +19,8 @@ To view other peoples channels you may follow them `/follow`, this adds there ca
 You can turn your public channels into RSS feeds
 I'm not sure if this would work yet but I think I could do some kind of token based authentication and discord side management to allow for private RSS as well where it's synced with who can view. But I'm not certain about that yet.
 
-There are some ideas I have around profiles and linking personal websites through that but I'm not sure about that either. But the RSS will be something you can turn into html and embed into your website. I have a js script that already does this already, I'll link it later
+There are some ideas I have around profiles and linking personal websites through that but I'm not sure about that either. But the RSS will be something you can turn into html and embed into your website. You can see that here: https://github.com/WillemDoesIt/rss-to-html
 
  - TODO: come up with what the permissions system should look like
  - TODO: research private rss feeds more
  - TODO: come up with a profile system
- - TODO: link the js code in the README

@@ -2,6 +2,7 @@ import asyncio
 from interactions import Client, Intents, SlashContext, OptionType, listen, slash_command, slash_option, GuildCategory
 from interactions.api.events import MemberAdd
 import json
+from functools import wraps
 
 bot = Client(intents=Intents.GUILD_MEMBERS | Intents.DEFAULT)
 
@@ -83,113 +84,195 @@ def save_data(data):
     with open('data.json', 'w') as file:
         json.dump(data, file, indent=4)
 
-# Function to sync channels and users data
-async def sync_data(guild):
-    print("Syncing data...")
-    data = load_data()
-    channels_data = data.get("categories", {})
-    user_data = data.get("users", {})
-    username_to_user_id = {username.lower(): user_id for user_id, username in user_data.items()}
+def sync_data_before_and_after(func):
+    # Ok this function needs a lot of work.
+    # It's not going to scale well because it's very un-optimized
+    # ^^^ especially considering how much this shit gets called
+    # It also does not yet have a way to see any permissions which is vital
+    # if two people have the same username this breaks
+    # if you want to make any category ever you give someone with the username of that category access, like if someone had the username: archive
 
-    # Fetch all channels
-    print("Fetching channels...")
-    channels = await guild.fetch_channels()
-    print(f"Fetched {len(channels)} channels.\n")
+    # Function to sync channels and users data
+    async def sync_data(guild):
+        print("Syncing data...")
+        pdata = load_data() # previous data
+        pchannels_data = pdata.get("categories", {})
+        puser_data = pdata.get("users", {})
+        username_to_user_id = {username.lower(): user_id for user_id, username in puser_data.items()}
 
-    print(f"Channel data: {channels}\n")
-    
-    print("Processing channels...\n")
-    for channel in channels:
-        print(f"    Processing channel '{channel.name}'...")
-        if isinstance(channel, GuildCategory):
-            print(f"        Processing category '{channel.name}'...")            
-            # turn the category which is a username into the user_id of that user
-            potential_username = str(channel.name)
+        # Fetch all channels
+        print("Fetching channels...")
+        channels = await guild.fetch_channels()
+        print(f"Fetched {len(channels)} channels.\n")
+
+        def process_category(channel, channels, pchannels_data, username_to_user_id):
+            print(f"        Processing category '{channel.name}'...")
+            potential_username = str(channel.name).lower()
             print(f"            `potential_username`: {potential_username}")
-            print(f"            `user_data`: {username_to_user_id}")
-            if potential_username in username_to_user_id:
-                username = potential_username
-                print(f"                verified username '{username}'")
-                user_id = username_to_user_id[username]
-                print(f"                verified user_id '{user_id}'")
-                if user_id not in channels_data:
-                    channels_data[user_id] = {
+            print(f"            `username_to_user_id`: {username_to_user_id}")
+
+            user_id = username_to_user_id.get(potential_username)
+            if user_id:
+                print(f"                verified user_id '{user_id}' for username '{potential_username}'")
+                if user_id not in pchannels_data:
+                    pchannels_data[user_id] = {
                         "category_id": str(channel.id),
                         "channels": {}
                     }
                 for sub_channel in channels:
                     if sub_channel.parent_id == channel.id:
                         print(f"                    Adding sub-channel '{sub_channel.name}' to user '{user_id}'...")
-                        channels_data[user_id]["channels"][sub_channel.name] = {
+                        pchannels_data[user_id]["channels"][sub_channel.name] = {
                             "id": str(sub_channel.id),
                             "type": "public",  # Placeholder, replace with actual detection
                             "reactions": True,  # Placeholder, replace with actual detection
                             "comments": True,  # Placeholder, replace with actual detection
                             "member_ids": [],  # Placeholder, replace with actual detection
                             "roles": []  # Placeholder, replace with actual detection
-                        }
-            print(f"        Processed category.")
-        print(f"    Processed channel.")
+                        } # updating previous channel data to new data
+            else:
+                print(f"                No user found for category '{channel.name}'")
 
+        print("Processing channels...\n")
+        for channel in channels:
+            print(f"    Processing channel '{channel.name}'...")
+            if isinstance(channel, GuildCategory):
+                process_category(channel, channels, pchannels_data, username_to_user_id)
+            print(f"    Processed channel.\n")
 
-    # Fetch members from the guild
-    print("Fetching members...")
-    for member in guild.members:
-        user_data[str(member.id)] = member.username
-        print(f"    Added member '{member.username}' (ID: {member.id}) to user data.")
+        # Fetch members from the guild
+        print("Fetching members...")
+        for member in guild.members:
+            puser_data[str(member.id)] = member.username # updating previous user data to new data
+            print(f"    Added member '{member.username}' (ID: {member.id}) to user data.")
 
-    # Save the updated data to data.json
-    print("Saving data to data.json...")
-    save_data({
-        "users": user_data,
-        "categories": channels_data
-    })
+        # Save the updated data to data.json
+        print("Saving data to data.json...")
+        save_data({
+            "users": puser_data,
+            "categories": pchannels_data
+        })
 
-    print("Sync complete.")
+    @wraps(func)  # Ensure the function metadata is preserved
+    async def wrapper(ctx, *args, **kwargs):
+        guild = ctx.guild
+        print("Syncing current data for redundancy...")
+        try:
+            await sync_data(guild)
+            print("User and Channel Data synced.")
+        except Exception as e:
+            print(f"Error syncing data: {e}")
+            return
 
-# `/create_channel` Slash Command
+        # Pass all received arguments and keyword arguments to the wrapped function
+        try:
+            result = await func(ctx, *args, **kwargs)
+        except TypeError as e:
+            print(f"Error calling {func.__name__}: {e}")
+            return
+
+        print("Syncing new channels data...")
+        try:
+            await sync_data(guild)
+            print("User and Channel Data synced.")
+        except Exception as e:
+            print(f"Error syncing Data: {e}")
+
+        return result
+    return wrapper
+
+# `/create_channel` command
 @slash_command(name="create_channel", description="Make your own private channel!")
-@slash_option(
-    name="name",
-    description="Name of the channel",
-    opt_type=OptionType.STRING,
-)
+@slash_option(name="name", description="Name of the channel", opt_type=OptionType.STRING)
+@sync_data_before_and_after
 async def create_channel(ctx: SlashContext, name: str):
     guild = ctx.guild
-
-    user_id = str(ctx.author.user.id)  # Assuming ctx.author.id gives the user's Discord ID
-    print(f'Creating the channel "{name}" for user_id: {user_id}...')
-
-    print("Syncing current data for redundancy...")
-    try:
-        await sync_data(guild)
-        print("User and Channel Data synced.")
-    except Exception as e:
-        print(f"Error syncing data: {e}")
+    user_id = str(ctx.author.user.id)
+    data = load_data()
+    channels_data = data["categories"]
+    user_data = channels_data.get(user_id)
+    if not user_data:
+        await ctx.send("No personal category found. Please contact staff to troubleshoot.")
         return
 
-    # Load data.json data
-    channels_data = load_data()["categories"]
+    category_id = user_data["category_id"]
+    channel = await guild.create_text_channel(name=name, category=category_id)
+    await ctx.send(f"Channel '{name}' created.")
 
-    # Check if the user's entry exists in data.json
-    if user_id in channels_data:
-        user_data = channels_data[user_id]
-        category_id = user_data["category_id"]
-
-        # Create the channel in the user's category
-        channel = await guild.create_text_channel(name=name, category=category_id)
-        await ctx.send(f"Channel '{name}' created.")
-        print(f"Channel '{name}' created.")
-    else:
+# `/rename_channel` command
+@slash_command(name="rename_channel", description="Rename one of your channels")
+@slash_option(name="old_name", description="Current name of the channel to rename", opt_type=OptionType.STRING)
+@slash_option(name="new_name", description="New name for the channel", opt_type=OptionType.STRING)
+@sync_data_before_and_after
+async def rename_channel(ctx: SlashContext, old_name: str, new_name: str):
+    guild = ctx.guild
+    user_id = str(ctx.author.user.id)
+    data = load_data()
+    channels_data = data["categories"]
+    user_data = channels_data.get(user_id)
+    if not user_data:
         await ctx.send("No personal category found. Please contact staff to troubleshoot.")
-        print("No personal category found. Failed to create channel.")
+        return
     
-    print("Syncing new channels data...")
+    if old_name not in user_data["channels"]:
+        await ctx.send(f"Channel '{old_name}' not found.")
+        return
+
+    old_channel_id = user_data["channels"][old_name]["id"]
+    old_channel = guild.get_channel(int(old_channel_id))
+    if not old_channel:
+        await ctx.send(f"Channel '{old_name}' not found in the server.")
+        return
+
+    # Update data and server channel
     try:
-        await sync_data(guild)
-        print("User and Channel Data synced.")
+        await old_channel.edit(name=new_name)
     except Exception as e:
-        print(f"Error syncing Data: {e}")
+        await ctx.send(f"Error renaming channel: {e}")
+        return
+
+    # Update data in memory
+    user_data["channels"][new_name] = user_data["channels"].pop(old_name)
+    await ctx.send(f"Channel '{old_name}' renamed to '{new_name}'.")
+
+# TODO: this deletes the channels completely rather than moving them to the archive category
+
+# `/delete_channel` command
+@slash_command(name="delete_channel", description="Delete one of your channels")
+@slash_option(name="name", description="Name of the channel to delete", opt_type=OptionType.STRING)
+@sync_data_before_and_after
+async def delete_channel(ctx: SlashContext, name: str):
+    guild = ctx.guild
+    user_id = str(ctx.author.user.id)
+    data = load_data()
+    channels_data = data["categories"]
+    user_data = channels_data.get(user_id)
+    if not user_data:
+        await ctx.send("No personal category found. Please contact staff to troubleshoot.")
+        return
+    
+    if name not in user_data["channels"]:
+        await ctx.send(f"Channel '{name}' not found.")
+        return
+
+    channel_id = user_data["channels"][name]["id"]
+    channel = guild.get_channel(int(channel_id))
+    if not channel:
+        await ctx.send(f"Channel '{name}' not found in the server.")
+        return
+
+    # Delete channel from server
+    try:
+        await channel.delete()
+    except Exception as e:
+        await ctx.send(f"Error deleting channel: {e}")
+        return
+
+    # Update data in memory
+    user_data["channels"].pop(name)
+    await ctx.send(f"Channel '{name}' deleted.")
+
+
 
 # Run the bot using the token from token.json
 PATH = "token.json"
