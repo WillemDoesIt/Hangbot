@@ -1,8 +1,8 @@
-import asyncio
 from interactions import Client, Intents, SlashContext, OptionType, listen, slash_command, slash_option, GuildCategory
 from interactions.api.events import MemberAdd
 import json
 from functools import wraps
+import subprocess
 
 bot = Client(intents=Intents.GUILD_MEMBERS | Intents.DEFAULT)
 
@@ -84,13 +84,13 @@ def save_data(data):
     with open('data.json', 'w') as file:
         json.dump(data, file, indent=4)
 
+# Ok this function needs a lot of work.
+# It's not going to scale well because it's very un-optimized
+# ^^^ especially considering how much this shit gets called
+# It also does not yet have a way to see any permissions which is vital
+# if two people have the same username this breaks
+# if you want to make any category ever you give someone with the username of that category access, like if someone had the username: archive
 def sync_data_before_and_after(func):
-    # Ok this function needs a lot of work.
-    # It's not going to scale well because it's very un-optimized
-    # ^^^ especially considering how much this shit gets called
-    # It also does not yet have a way to see any permissions which is vital
-    # if two people have the same username this breaks
-    # if you want to make any category ever you give someone with the username of that category access, like if someone had the username: archive
 
     # Function to sync channels and users data
     async def sync_data(guild):
@@ -180,6 +180,74 @@ def sync_data_before_and_after(func):
 
         return result
     return wrapper
+
+# Helper function to call the Rust script
+def generate_rss_item(title: str, content: str) -> str:
+    result = subprocess.run(
+        ["./rust-rss"],  # Make sure to replace with your actual Rust executable
+        input=f"{title}\n{content}\n",  # Pass title and content as input
+        text=True,
+        capture_output=True
+    )
+    return result.stdout
+
+import interactions
+
+# `@slash_command` decorator is used to register a slash command
+@slash_command(
+    name="generate_rss",
+    description="Generate an RSS feed from channel messages"
+)
+@slash_option(
+    name="channel_id",
+    description="Select the channel ID to generate RSS feed from",
+    opt_type=OptionType.STRING,  # Accept as string to avoid integer limitations
+    required=True
+)
+async def generate_rss(ctx: SlashContext, channel_id: str):
+    guild = ctx.guild
+
+    try:
+        channel_id_int = int(channel_id)  # Convert to integer
+    except ValueError:
+        await ctx.send("Invalid channel ID. Please provide a valid channel ID.", ephemeral=True)
+        return
+
+    channel = guild.get_channel(channel_id_int)
+
+    # Ensure the selected channel exists and is a text channel
+    if not channel or channel.type != interactions.ChannelType.GUILD_TEXT:
+        await ctx.send("Please select a valid text channel.", ephemeral=True)
+        return
+
+    # Fetch messages from the selected channel
+    messages = await channel.history(limit=100).flatten()  # Adjust the limit as needed
+
+    # Initialize RSS feed items list
+    rss_items = []
+
+    for message in messages:
+        # Skip messages without content
+        if not message.content:
+            continue
+
+        title = f"Message by {message.author.username} on {message.timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+        content = message.content
+
+        # Generate RSS item using the Rust script
+        rss_item = generate_rss_item(title, content)
+        rss_items.append(rss_item)
+
+    # Create the full RSS feed
+    rss_feed = "\n".join(rss_items)
+
+    # Save the RSS feed to a file
+    with open("feed.xml", "w") as file:
+        file.write(rss_feed)
+
+    await ctx.send("RSS feed generated successfully!", ephemeral=True)
+
+
 
 # `/create_channel` command
 @slash_command(name="create_channel", description="Make your own private channel!")
@@ -271,8 +339,6 @@ async def delete_channel(ctx: SlashContext, name: str):
     # Update data in memory
     user_data["channels"].pop(name)
     await ctx.send(f"Channel '{name}' deleted.")
-
-
 
 # Run the bot using the token from token.json
 PATH = "token.json"

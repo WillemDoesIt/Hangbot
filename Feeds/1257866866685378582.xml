@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>public</title>
+    <link>https://discord.com/channels/1163237659024556232/1257866866685378582</link>
+    <description></description>
+    <language>en-us</language>
+    <pubDate></pubDate>
+    <lastBuildDate></lastBuildDate>
+    <item>
+        <title>Testing Rust Auto RSS</title>
+        <guid>Testing Rust Auto RSS_2024-07-19_05:32:37</guid>
+        <pubDate>Fri, 19 Jul 2024 05:32:37 GMT</pubDate>
+        <description><![CDATA[
+            <p>This is the contents of this thing</p>
+        ]]></description>
+    </item>
+</rss>

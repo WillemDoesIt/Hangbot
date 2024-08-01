@@ -1,4 +1,66 @@
 {
-    "users": {},
-    "categories": {}
+    "users": {
+        "1234567890": "TestUser",
+        "505897723174846466": "willemdoesnt",
+        "681998181340545081": "imonsay",
+        "815000368676864011": "consciouschaos.",
+        "1171328839033561088": "HangBot. Nightly"
+    },
+    "categories": {
+        "505897723174846466": {
+            "category_id": "1257866865846386789",
+            "channels": {
+                "public": {
+                    "id": "1257866866685378582",
+                    "type": "public",
+                    "reactions": true,
+                    "comments": true,
+                    "member_ids": [],
+                    "roles": [],
+                    "tokens": []
+                },
+                "private": {
+                    "id": "1258859264609615954",
+                    "type": "public",
+                    "reactions": true,
+                    "comments": true,
+                    "member_ids": [],
+                    "roles": [],
+                    "tokens": []
+                },
+                "to-be-deleted": {
+                    "id": "1259236986456113175",
+                    "type": "public",
+                    "reactions": true,
+                    "comments": true,
+                    "member_ids": [],
+                    "roles": [],
+                    "tokens": []
+                }
+            }
+        },
+        "815000368676864011": {
+            "category_id": "1258897354673885306",
+            "channels": {
+                "public": {
+                    "id": "1258897473649512549",
+                    "type": "public",
+                    "reactions": true,
+                    "comments": true,
+                    "member_ids": [],
+                    "roles": [],
+                    "tokens": []
+                },
+                "private": {
+                    "id": "1258898245908955238",
+                    "type": "public",
+                    "reactions": true,
+                    "comments": true,
+                    "member_ids": [],
+                    "roles": [],
+                    "tokens": []
+                }
+            }
+        }
+    }
 }
