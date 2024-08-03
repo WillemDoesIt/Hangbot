@@ -1,8 +1,10 @@
-from interactions import Client, Intents, SlashContext, OptionType, listen, slash_command, slash_option, GuildCategory
+from interactions import Client, Intents, SlashContext, OptionType, listen, slash_command, slash_option, GuildCategory, Permissions, PermissionOverwrite, OverwriteType, Member
+import interactions
 from interactions.api.events import MemberAdd
 import json
 from functools import wraps
 import subprocess
+import asyncio
 
 bot = Client(intents=Intents.GUILD_MEMBERS | Intents.DEFAULT)
 
@@ -19,6 +21,12 @@ async def on_ready():
         from interactions.api.models.guild import Member
 
         print("Simulating member join event...")
+        if not bot.guilds:
+            print("No guilds found.")
+            return
+
+        guild = bot.guilds[0]
+
         mock_user = User(
             username="TestUser", 
             id=1234567890, 
@@ -36,309 +44,176 @@ async def on_ready():
             deaf=False, 
             mute=False, 
             pending=False,
-            guild_id=bot.guilds[0].id  # Ensure the guild_id is set in the member object
+            guild_id=guild.id  # Ensure the guild_id is set in the member object
         )
         
-        # Wait for the bot to properly populate its guild data
-        await asyncio.sleep(2)
-        if not bot.guilds:
-            print("No guilds found.")
-            return
-
         # Construct the event with the correct parameters
         event = MemberAdd(
             member=mock_member,
-            guild_id=bot.guilds[0].id
+            guild_id=guild.id
         )
-        
-        await an_event_handler(event)
-        
+        await on_member_join(event)
+
     await simulate_member_add()
     '''
 
-# When Member joins
 @listen(MemberAdd)
-async def an_event_handler(event: MemberAdd):
+async def on_member_join(event: MemberAdd):
     print(f"Someone joined with name: {event.member.user.username}")
 
+    guild = bot.guilds[0]
+
     # Create a category for the new member named after their username
-    category = await bot.guilds[0].create_category(name=event.member.user.username)
+    category = await guild.create_category(name=event.member.user.username)
 
-    # Create a channel for the new member called public in the category
-    public_channel = await bot.guilds[0].create_text_channel(name="public", category=category)
-    private_channel = await bot.guilds[0].create_text_channel(name="private", category=category)
-    
-    '''
-    Send messages is off by default except the member who joined.
-    View Channels is off by default except the member who joined and the public channel.
-    '''
-    # TODO: set permissions for category and channels
+    # Create channels for the new member in the category
+    public_channel = await guild.create_text_channel(name="public", category=category)
+    private_channel = await guild.create_text_channel(name="private", category=category)
 
-# Function to load data.json data
-def load_data():
-    with open('data.json', 'r') as file:
-        return json.load(file)
+    # Deny everyone else the ability to view and send messages
+    await category.set_permission(target=guild.default_role, view_channel=False, send_messages=False)
+    await public_channel.set_permission(target=guild.default_role, view_channel=False, send_messages=False)
+    await private_channel.set_permission(target=guild.default_role, view_channel=False, send_messages=False)
 
-# Function to save data.json data
-def save_data(data):
-    with open('data.json', 'w') as file:
-        json.dump(data, file, indent=4)
+    # Ensure the target is a Member type
+    member = event.member
+    if isinstance(member, interactions.Member):
+        await category.set_permission(target=member, view_channel=True, send_messages=True)
+        await public_channel.set_permission(target=member, view_channel=True, send_messages=True)
+        await private_channel.set_permission(target=member, view_channel=True, send_messages=True)
+    else:
+        print("Error: event.member is not a Member instance")
+    # Log the creation of the category and channels
+    log_channel = bot.get_channel(1269023924415627335)  # Replace with your log channel ID
+    await log_channel.send(f"Created category and channels for {event.member.user.username}.")
 
-# Ok this function needs a lot of work.
-# It's not going to scale well because it's very un-optimized
-# ^^^ especially considering how much this shit gets called
-# It also does not yet have a way to see any permissions which is vital
-# if two people have the same username this breaks
-# if you want to make any category ever you give someone with the username of that category access, like if someone had the username: archive
-def sync_data_before_and_after(func):
 
-    # Function to sync channels and users data
-    async def sync_data(guild):
-        print("Syncing data...")
-        pdata = load_data() # previous data
-        pchannels_data = pdata.get("categories", {})
-        puser_data = pdata.get("users", {})
-        username_to_user_id = {username.lower(): user_id for user_id, username in puser_data.items()}
-
-        # Fetch all channels
-        print("Fetching channels...")
-        channels = await guild.fetch_channels()
-        print(f"Fetched {len(channels)} channels.\n")
-
-        def process_category(channel, channels, pchannels_data, username_to_user_id):
-            print(f"        Processing category '{channel.name}'...")
-            potential_username = str(channel.name).lower()
-            print(f"            `potential_username`: {potential_username}")
-            print(f"            `username_to_user_id`: {username_to_user_id}")
-
-            user_id = username_to_user_id.get(potential_username)
-            if user_id:
-                print(f"                verified user_id '{user_id}' for username '{potential_username}'")
-                if user_id not in pchannels_data:
-                    pchannels_data[user_id] = {
-                        "category_id": str(channel.id),
-                        "channels": {}
-                    }
-                for sub_channel in channels:
-                    if sub_channel.parent_id == channel.id:
-                        print(f"                    Adding sub-channel '{sub_channel.name}' to user '{user_id}'...")
-                        pchannels_data[user_id]["channels"][sub_channel.name] = {
-                            "id": str(sub_channel.id),
-                            "type": "public",  # Placeholder, replace with actual detection
-                            "reactions": True,  # Placeholder, replace with actual detection
-                            "comments": True,  # Placeholder, replace with actual detection
-                            "member_ids": [],  # Placeholder, replace with actual detection
-                            "roles": []  # Placeholder, replace with actual detection
-                        } # updating previous channel data to new data
-            else:
-                print(f"                No user found for category '{channel.name}'")
-
-        print("Processing channels...\n")
-        for channel in channels:
-            print(f"    Processing channel '{channel.name}'...")
-            if isinstance(channel, GuildCategory):
-                process_category(channel, channels, pchannels_data, username_to_user_id)
-            print(f"    Processed channel.\n")
-
-        # Fetch members from the guild
-        print("Fetching members...")
-        for member in guild.members:
-            puser_data[str(member.id)] = member.username # updating previous user data to new data
-            print(f"    Added member '{member.username}' (ID: {member.id}) to user data.")
-
-        # Save the updated data to data.json
-        print("Saving data to data.json...")
-        save_data({
-            "users": puser_data,
-            "categories": pchannels_data
-        })
-
-    @wraps(func)  # Ensure the function metadata is preserved
-    async def wrapper(ctx, *args, **kwargs):
+def fetch_user_category(func):
+    @wraps(func)
+    async def wrapper(ctx: SlashContext, *args, **kwargs):
         guild = ctx.guild
-        print("Syncing current data for redundancy...")
-        try:
-            await sync_data(guild)
-            print("User and Channel Data synced.")
-        except Exception as e:
-            print(f"Error syncing data: {e}")
+        category_name = ctx.author.user.username  # Using the username as the category name
+
+        # Fetch all categories and find the user's category
+        categories = await guild.fetch_channels()
+        user_category = None
+        for category in categories:
+            if isinstance(category, GuildCategory) and category.name.lower() == category_name.lower():
+                user_category = category
+                break
+
+        if not user_category:
+            await ctx.send("No personal category found. Please contact staff to troubleshoot.")
             return
 
-        # Pass all received arguments and keyword arguments to the wrapped function
-        try:
-            result = await func(ctx, *args, **kwargs)
-        except TypeError as e:
-            print(f"Error calling {func.__name__}: {e}")
-            return
-
-        print("Syncing new channels data...")
-        try:
-            await sync_data(guild)
-            print("User and Channel Data synced.")
-        except Exception as e:
-            print(f"Error syncing Data: {e}")
-
-        return result
+        return await func(ctx, user_category, *args, **kwargs)
     return wrapper
 
-# Helper function to call the Rust script
-def generate_rss_item(title: str, content: str) -> str:
-    result = subprocess.run(
-        ["./rust-rss"],  # Make sure to replace with your actual Rust executable
-        input=f"{title}\n{content}\n",  # Pass title and content as input
-        text=True,
-        capture_output=True
-    )
-    return result.stdout
+def fetch_channel(func):
+    @wraps(func)
+    async def wrapper(ctx: SlashContext, user_category: GuildCategory, *args, **kwargs):
+        # Determine the channel name based on the function's expected parameters
+        channel_name = kwargs.get('name') or kwargs.get('old_name')  # Prefer kwargs over args
+        if not channel_name:
+            await ctx.send("Channel name not provided.")
+            return
 
-import interactions
+        # Find the channel in the user's category
+        channel = None
+        for ch in user_category.channels:
+            if ch.name.lower() == channel_name.lower():
+                channel = ch
+                break
 
-# `@slash_command` decorator is used to register a slash command
-@slash_command(
-    name="generate_rss",
-    description="Generate an RSS feed from channel messages"
-)
-@slash_option(
-    name="channel_id",
-    description="Select the channel ID to generate RSS feed from",
-    opt_type=OptionType.STRING,  # Accept as string to avoid integer limitations
-    required=True
-)
-async def generate_rss(ctx: SlashContext, channel_id: str):
-    guild = ctx.guild
+        if not channel:
+            await ctx.send(f"Channel '{channel_name}' not found.")
+            return
 
-    try:
-        channel_id_int = int(channel_id)  # Convert to integer
-    except ValueError:
-        await ctx.send("Invalid channel ID. Please provide a valid channel ID.", ephemeral=True)
-        return
+        return await func(ctx, user_category, channel, *args, **kwargs)
+    return wrapper
 
-    channel = guild.get_channel(channel_id_int)
-
-    # Ensure the selected channel exists and is a text channel
-    if not channel or channel.type != interactions.ChannelType.GUILD_TEXT:
-        await ctx.send("Please select a valid text channel.", ephemeral=True)
-        return
-
-    # Fetch messages from the selected channel
-    messages = await channel.history(limit=100).flatten()  # Adjust the limit as needed
-
-    # Initialize RSS feed items list
-    rss_items = []
-
-    for message in messages:
-        # Skip messages without content
-        if not message.content:
-            continue
-
-        title = f"Message by {message.author.username} on {message.timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
-        content = message.content
-
-        # Generate RSS item using the Rust script
-        rss_item = generate_rss_item(title, content)
-        rss_items.append(rss_item)
-
-    # Create the full RSS feed
-    rss_feed = "\n".join(rss_items)
-
-    # Save the RSS feed to a file
-    with open("feed.xml", "w") as file:
-        file.write(rss_feed)
-
-    await ctx.send("RSS feed generated successfully!", ephemeral=True)
-
-
-
-# `/create_channel` command
 @slash_command(name="create_channel", description="Make your own private channel!")
 @slash_option(name="name", description="Name of the channel", opt_type=OptionType.STRING)
-@sync_data_before_and_after
-async def create_channel(ctx: SlashContext, name: str):
+@fetch_user_category
+async def create_channel(ctx: SlashContext, user_category: GuildCategory, name: str):
     guild = ctx.guild
-    user_id = str(ctx.author.user.id)
-    data = load_data()
-    channels_data = data["categories"]
-    user_data = channels_data.get(user_id)
-    if not user_data:
-        await ctx.send("No personal category found. Please contact staff to troubleshoot.")
-        return
-
-    category_id = user_data["category_id"]
-    channel = await guild.create_text_channel(name=name, category=category_id)
+    # Create the channel in the user's category
+    channel = await guild.create_text_channel(name=name, category=user_category)
     await ctx.send(f"Channel '{name}' created.")
 
-# `/rename_channel` command
 @slash_command(name="rename_channel", description="Rename one of your channels")
 @slash_option(name="old_name", description="Current name of the channel to rename", opt_type=OptionType.STRING)
 @slash_option(name="new_name", description="New name for the channel", opt_type=OptionType.STRING)
-@sync_data_before_and_after
-async def rename_channel(ctx: SlashContext, old_name: str, new_name: str):
-    guild = ctx.guild
-    user_id = str(ctx.author.user.id)
-    data = load_data()
-    channels_data = data["categories"]
-    user_data = channels_data.get(user_id)
-    if not user_data:
-        await ctx.send("No personal category found. Please contact staff to troubleshoot.")
-        return
-    
-    if old_name not in user_data["channels"]:
-        await ctx.send(f"Channel '{old_name}' not found.")
-        return
-
-    old_channel_id = user_data["channels"][old_name]["id"]
-    old_channel = guild.get_channel(int(old_channel_id))
-    if not old_channel:
-        await ctx.send(f"Channel '{old_name}' not found in the server.")
-        return
-
-    # Update data and server channel
+@fetch_user_category
+@fetch_channel
+async def rename_channel(ctx: SlashContext, user_category: GuildCategory, channel, old_name: str, new_name: str):
     try:
-        await old_channel.edit(name=new_name)
+        await channel.edit(name=new_name)
+        await ctx.send(f"Channel '{old_name}' renamed to '{new_name}'.")
     except Exception as e:
         await ctx.send(f"Error renaming channel: {e}")
-        return
 
-    # Update data in memory
-    user_data["channels"][new_name] = user_data["channels"].pop(old_name)
-    await ctx.send(f"Channel '{old_name}' renamed to '{new_name}'.")
-
-# TODO: this deletes the channels completely rather than moving them to the archive category
-
-# `/delete_channel` command
 @slash_command(name="delete_channel", description="Delete one of your channels")
 @slash_option(name="name", description="Name of the channel to delete", opt_type=OptionType.STRING)
-@sync_data_before_and_after
-async def delete_channel(ctx: SlashContext, name: str):
-    guild = ctx.guild
-    user_id = str(ctx.author.user.id)
-    data = load_data()
-    channels_data = data["categories"]
-    user_data = channels_data.get(user_id)
-    if not user_data:
-        await ctx.send("No personal category found. Please contact staff to troubleshoot.")
-        return
-    
-    if name not in user_data["channels"]:
-        await ctx.send(f"Channel '{name}' not found.")
-        return
-
-    channel_id = user_data["channels"][name]["id"]
-    channel = guild.get_channel(int(channel_id))
-    if not channel:
-        await ctx.send(f"Channel '{name}' not found in the server.")
-        return
-
-    # Delete channel from server
+@fetch_user_category
+@fetch_channel
+async def delete_channel(ctx: SlashContext, user_category: GuildCategory, channel, name: str):
     try:
         await channel.delete()
+        await ctx.send(f"Channel '{name}' deleted.")
     except Exception as e:
         await ctx.send(f"Error deleting channel: {e}")
+
+
+@slash_command(name="follow", description="Request access to a user's channels")
+@slash_option(name="username", description="Username of the user you want to follow", opt_type=OptionType.STRING)
+async def follow(ctx: SlashContext, username: str):
+    guild = ctx.guild
+    target_member = None
+    for member in guild.members:
+        if member.user.username.lower() == username.lower():
+            target_member = member
+            break
+
+    if not target_member:
+        await ctx.send(f"No user found with the username '{username}'.")
         return
 
-    # Update data in memory
-    user_data["channels"].pop(name)
-    await ctx.send(f"Channel '{name}' deleted.")
+    user_category = None
+    for category in await guild.fetch_channels():
+        if isinstance(category, GuildCategory) and category.name.lower() == username.lower():
+            user_category = category
+            break
+
+    if not user_category:
+        await ctx.send(f"No category found for user '{username}'.")
+        return
+
+    await ctx.send(f"Request to follow '{username}' sent.")
+
+    # Send a request message to the target user's log channel or DM
+    request_channel = bot.get_channel(target_member.id)  # Replace with the actual channel to send requests to
+    await request_channel.send(f"{ctx.author.user.username} has requested to follow your channels. Use `/grant_access {ctx.author.user.username}` to approve.")
+
+@slash_command(name="grant_access", description="Grant access to your channels")
+@slash_option(name="username", description="Username of the user to grant access", opt_type=OptionType.STRING)
+@fetch_user_category
+async def grant_access(ctx: SlashContext, user_category: GuildCategory, username: str):
+    guild = ctx.guild
+    target_member = None
+    for member in guild.members:
+        if member.user.username.lower() == username.lower():
+            target_member = member
+            break
+
+    if not target_member:
+        await ctx.send(f"No user found with the username '{username}'.")
+        return
+
+    await user_category.set_permission(target=target_member, view_channel=True, send_messages=True)
+
+    await ctx.send(f"Granted access to '{username}' for your channels.")
+
 
 # Run the bot using the token from token.json
 PATH = "token.json"
