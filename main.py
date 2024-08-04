@@ -75,6 +75,8 @@ async def on_member_join(event: MemberAdd):
     await public_channel.set_permission(target=guild.default_role, view_channel=False, send_messages=False)
     await private_channel.set_permission(target=guild.default_role, view_channel=False, send_messages=False)
 
+    # TODO: Iterate through every member of the server and block them from viewing the private channel
+
     # Ensure the target is a Member type
     member = event.member
     if isinstance(member, interactions.Member):
@@ -164,55 +166,110 @@ async def delete_channel(ctx: SlashContext, user_category: GuildCategory, channe
     except Exception as e:
         await ctx.send(f"Error deleting channel: {e}")
 
+@slash_command(name="block", description="Block a user from accessing your channels")
+@slash_option(
+    name="user",
+    description="",
+    required=True,
+    opt_type=OptionType.USER,
+)
+@fetch_user_category
+async def block_user(ctx: SlashContext, user_category: GuildCategory, user:OptionType.USER=None):
+    member = await ctx.guild.fetch_member(user.id)
+    await user_category.set_permission(target=member, view_channel=False, send_messages=False)
+    await ctx.send(f"User '{user.username}' has been blocked from your channels.")
 
-@slash_command(name="follow", description="Request access to a user's channels")
-@slash_option(name="username", description="Username of the user you want to follow", opt_type=OptionType.STRING)
-async def follow(ctx: SlashContext, username: str):
-    guild = ctx.guild
-    target_member = None
-    for member in guild.members:
-        if member.user.username.lower() == username.lower():
-            target_member = member
-            break
+@slash_command(name="unblock", description="Unblock a user from accessing your channels")
+@slash_option(
+    name="user",
+    description="",
+    required=True,
+    opt_type=OptionType.USER,
+)
+@fetch_user_category
+async def unblock_user(ctx: SlashContext, user_category: GuildCategory, user:OptionType.USER=None):
+    member = await ctx.guild.fetch_member(user.id)
+    await user_category.set_permission(target=member, view_channel=True, send_messages=True)
+    await ctx.send(f"User '{user.username}' has been unblocked and granted access to your channels.")
 
-    if not target_member:
-        await ctx.send(f"No user found with the username '{username}'.")
-        return
+@slash_command(name="list_blocked", description="List all users blocked from accessing your channels")
+@fetch_user_category
+async def list_blocked(ctx: SlashContext, user_category: GuildCategory):
+    blocked_users = []
 
+    # Get all permission overwrites for the category
+    permissions = user_category.permission_overwrites
+
+    for overwrite in permissions:
+        if not overwrite.allow & Permissions.VIEW_CHANNEL and not overwrite.allow & Permissions.SEND_MESSAGES:
+            try:
+                blocked_user = await ctx.guild.fetch_member(overwrite.id)
+                if blocked_user:
+                    blocked_users.append(blocked_user.user.username)
+            except Exception as e:
+                print(f"Error fetching member: {e}")
+
+    if not blocked_users:
+        await ctx.send("You have not blocked any users.")
+    else:
+        blocked_users_str = ", ".join(blocked_users)
+        await ctx.send(f"Blocked users: {blocked_users_str}")
+
+@slash_command(name="follow", description="Follow a users category to have it appear")
+@slash_option(
+    name="user",
+    description="",
+    required=True,
+    opt_type=OptionType.USER,
+)
+async def follow(ctx: SlashContext, user:OptionType.USER=None):
+    guild = ctx.guild 
+    category_name = user.username  # Using the username as the category name
+
+    # Fetch all categories
+    categories = await guild.fetch_channels()
     user_category = None
-    for category in await guild.fetch_channels():
-        if isinstance(category, GuildCategory) and category.name.lower() == username.lower():
+    
+    for category in categories:
+        if isinstance(category, GuildCategory) and category.name.lower() == category_name.lower():
             user_category = category
             break
 
-    if not user_category:
-        await ctx.send(f"No category found for user '{username}'.")
+    if user_category is None:
+        await ctx.send("No personal category found. Please contact staff to troubleshoot.")
         return
 
-    await ctx.send(f"Request to follow '{username}' sent.")
+    member = await ctx.guild.fetch_member(user.id)
+    await user_category.set_permission(target=ctx.author, view_channel=True)
+    await ctx.send(f"You are now following '{user.username}'")
 
-    # Send a request message to the target user's log channel or DM
-    request_channel = bot.get_channel(target_member.id)  # Replace with the actual channel to send requests to
-    await request_channel.send(f"{ctx.author.user.username} has requested to follow your channels. Use `/grant_access {ctx.author.user.username}` to approve.")
+@slash_command(name="unfollow", description="Unfollow a user's category to have it disappear")
+@slash_option(
+    name="user",
+    description="The user whose category you want to unfollow",
+    required=True,
+    opt_type=OptionType.USER,
+)
+async def unfollow(ctx: SlashContext, user: OptionType.USER=None):
+    guild = ctx.guild 
+    category_name = user.username  # Using the username as the category name
 
-@slash_command(name="grant_access", description="Grant access to your channels")
-@slash_option(name="username", description="Username of the user to grant access", opt_type=OptionType.STRING)
-@fetch_user_category
-async def grant_access(ctx: SlashContext, user_category: GuildCategory, username: str):
-    guild = ctx.guild
-    target_member = None
-    for member in guild.members:
-        if member.user.username.lower() == username.lower():
-            target_member = member
+    # Fetch all categories
+    categories = await guild.fetch_channels()
+    user_category = None
+    
+    for category in categories:
+        if isinstance(category, GuildCategory) and category.name.lower() == category_name.lower():
+            user_category = category
             break
 
-    if not target_member:
-        await ctx.send(f"No user found with the username '{username}'.")
+    if user_category is None:
+        await ctx.send("No personal category found. Please contact staff to troubleshoot.")
         return
 
-    await user_category.set_permission(target=target_member, view_channel=True, send_messages=True)
+    await user_category.set_permission(target=ctx.author, view_channel=False)
+    await ctx.send(f"You are now unfollowing '{user.username}'")
 
-    await ctx.send(f"Granted access to '{username}' for your channels.")
 
 
 # Run the bot using the token from token.json
