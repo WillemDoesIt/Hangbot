@@ -1,14 +1,13 @@
 from interactions import Client, Intents, SlashContext, OptionType, listen, slash_command, slash_option, GuildCategory, Permissions, PermissionOverwrite, OverwriteType, Member
 import interactions
 from interactions.api.events import MemberAdd
-import json
 from functools import wraps
-import subprocess
-import asyncio
+import json
 
 bot = Client(
     intents=Intents.GUILD_MEMBERS | Intents.DEFAULT,
-    send_command_tracebacks=False
+    send_command_tracebacks=False,
+    fetch_members=True
 )
 
 # When the discord bot is ready it will do all in this function
@@ -18,7 +17,6 @@ async def on_ready():
     print(f"This bot is owned by {bot.owner}")
 
     # Function to simulate a member join event
-    '''
     async def simulate_member_add():
         from interactions.api.models.user import User
         from interactions.api.models.guild import Member
@@ -58,7 +56,6 @@ async def on_ready():
         await on_member_join(event)
 
     await simulate_member_add()
-    '''
 
 @listen(MemberAdd)
 async def on_member_join(event: MemberAdd):
@@ -79,10 +76,16 @@ async def on_member_join(event: MemberAdd):
     await private_channel.set_permission(target=guild.default_role, view_channel=False, send_messages=False)
 
     # Block anyone with the "test" role from seeing the private channel
-    await private_channel.set_permission(target=guild.create_role("test"), view_channel=False)
+    role_name = "test"
+    role = next((role for role in guild.roles if role.name == role_name), None)
+    if not role:
+        print(f"Role '{role_name}' not found.")
+        return
+    await private_channel.set_permission(target=role, view_channel=False)
 
     # Block everyone in the server from seeing the private channel
     for member in guild.members:
+        print(member)
         if member.id != event.member.id:
             await category.set_permission(target=member, view_channel=False, send_messages=False)
             await public_channel.set_permission(target=member, view_channel=False, send_messages=False)
