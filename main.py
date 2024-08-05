@@ -6,7 +6,10 @@ from functools import wraps
 import subprocess
 import asyncio
 
-bot = Client(intents=Intents.GUILD_MEMBERS | Intents.DEFAULT)
+bot = Client(
+    intents=Intents.GUILD_MEMBERS | Intents.DEFAULT,
+    send_command_tracebacks=False
+)
 
 # When the discord bot is ready it will do all in this function
 @listen()
@@ -75,7 +78,15 @@ async def on_member_join(event: MemberAdd):
     await public_channel.set_permission(target=guild.default_role, view_channel=False, send_messages=False)
     await private_channel.set_permission(target=guild.default_role, view_channel=False, send_messages=False)
 
-    # TODO: Iterate through every member of the server and block them from viewing the private channel
+    # Block anyone with the "test" role from seeing the private channel
+    await private_channel.set_permission(target=guild.create_role("test"), view_channel=False)
+
+    # Block everyone in the server from seeing the private channel
+    for member in guild.members:
+        if member.id != event.member.id:
+            await category.set_permission(target=member, view_channel=False, send_messages=False)
+            await public_channel.set_permission(target=member, view_channel=False, send_messages=False)
+            await private_channel.set_permission(target=member, view_channel=False, send_messages=False)
 
     # Ensure the target is a Member type
     member = event.member
@@ -134,14 +145,70 @@ def fetch_channel(func):
         return await func(ctx, user_category, channel, *args, **kwargs)
     return wrapper
 
-@slash_command(name="create_channel", description="Make your own private channel!")
+@slash_command(name="create_public_channel", description="Make your own public channel")
 @slash_option(name="name", description="Name of the channel", opt_type=OptionType.STRING)
 @fetch_user_category
-async def create_channel(ctx: SlashContext, user_category: GuildCategory, name: str):
+async def create_public_channel(ctx: SlashContext, user_category: GuildCategory, name: str):
     guild = ctx.guild
     # Create the channel in the user's category
     channel = await guild.create_text_channel(name=name, category=user_category)
     await ctx.send(f"Channel '{name}' created.")
+
+@slash_command(name="create_private_channel", description="Make your own private channel")
+@slash_option(name="name", description="Name of the channel", opt_type=OptionType.STRING)
+@fetch_user_category
+async def create_private_channel(ctx: SlashContext, user_category: GuildCategory, name: str):
+    guild = ctx.guild
+    # Create the channel in the user's category
+    channel = await guild.create_text_channel(name=name, category=user_category)
+
+    role_name = "test"
+    role = next((role for role in guild.roles if role.name == role_name), None)
+    if not role:
+        await ctx.send(f"Role '{role_name}' not found.")
+        return
+
+    # Block anyone with the "test" role from seeing the private channel
+    await channel.set_permission(target=role, view_channel=False)
+
+    # Fetch all members in the guild
+    for member in guild.members:
+        if member.id != ctx.author.id:
+            await channel.set_permission(target=member, view_channel=False, send_messages=False)
+    await ctx.send(f"Private Channel '{name}' created.")
+
+@slash_command(name="make_public", description="Make a channel public")
+@slash_option(name="name", description="Name of the channel to make public", opt_type=OptionType.STRING)
+@fetch_user_category
+@fetch_channel
+async def make_public(ctx: SlashContext, user_category: GuildCategory, channel, name: str):
+    try:
+        await channel.set_permission(target=ctx.author, view_channel=True, send_messages=True)
+        await ctx.send(f"Channel '{name}' made public.")
+    except Exception as e:
+        await ctx.send(f"Error making channel public: {e}")
+
+@slash_command(name="make_private", description="Make a channel private")
+@slash_option(name="channel", description="Name of the channel to make private", opt_type=OptionType.CHANNEL)
+@fetch_user_category
+async def make_private(ctx: SlashContext, user_category: GuildCategory, channel:OptionType.CHANNEL=None):
+    guild = ctx.guild
+
+    # Fetch the role by name
+    role_name = "test"
+    role = next((role for role in guild.roles if role.name == role_name), None)
+    if not role:
+        await ctx.send(f"Role '{role_name}' not found.")
+        return
+    
+    for member in guild.members:
+        if member.id != ctx.author.id:
+            await channel.set_permission(target=member, view_channel=False, send_messages=False)
+
+    # Block anyone with the "test" role from seeing the private channel
+    await channel.set_permission(target=role, view_channel=False)
+
+    await ctx.send(f"Channel '{channel}' made private.")
 
 @slash_command(name="rename_channel", description="Rename one of your channels")
 @slash_option(name="old_name", description="Current name of the channel to rename", opt_type=OptionType.STRING)
@@ -250,7 +317,7 @@ async def follow(ctx: SlashContext, user:OptionType.USER=None):
     required=True,
     opt_type=OptionType.USER,
 )
-async def unfollow(ctx: SlashContext, user: OptionType.USER=None):
+async def unfollow(ctx: SlashContext, user:OptionType.USER=None):
     guild = ctx.guild 
     category_name = user.username  # Using the username as the category name
 
@@ -260,17 +327,53 @@ async def unfollow(ctx: SlashContext, user: OptionType.USER=None):
     
     for category in categories:
         if isinstance(category, GuildCategory) and category.name.lower() == category_name.lower():
-            user_category = category
+            await category.set_permission(target=ctx.author, view_channel=False)
+
+            # Iterate through channels within the category and set view_channel to false
+            for channel in category.channels:
+                await channel.set_permission(target=ctx.author, view_channel=False)
+
             break
 
-    if user_category is None:
-        await ctx.send("No personal category found. Please contact staff to troubleshoot.")
-        return
-
-    await user_category.set_permission(target=ctx.author, view_channel=False)
     await ctx.send(f"You are now unfollowing '{user.username}'")
 
+@slash_command(name="permit", description="allow a user to access a private channel")
+@slash_option(
+    name="user",
+    description="the user you are permitting",
+    required=True,
+    opt_type=OptionType.USER,
+)
+@slash_option(
+    name="channel",
+    description="the channel you are permitting user to see",
+    required=True,
+    opt_type=OptionType.CHANNEL,
+)
+async def permit(ctx: SlashContext, user:OptionType.USER=None, channel:OptionType.CHANNEL=None):
+    member = await ctx.guild.fetch_member(user.id)
+    await channel.set_permission(target=member, view_channel=True)
+    await ctx.send(f"User '{user.username}' has been permitted to access your channels.")
 
+@slash_command(name="unpermit", description="remove a user's access to a private channel")
+@slash_option(
+    name="user",
+    description="The user you are unpermitting",
+    required=True,
+    opt_type=OptionType.USER,
+)
+@slash_option(
+    name="channel", 
+    description="The channel you are unpermitting them from",
+    required=True,
+    opt_type=OptionType.CHANNEL,
+)
+async def unpermit(ctx: SlashContext, user:OptionType.USER=None, channel:OptionType.CHANNEL=None):
+    member = await ctx.guild.fetch_member(user.id)
+    # do not set permission to be false like this, instead make it neutral
+    # await channel.set_permission(target=member, view_channel=False)
+
+    await ctx.send(f"User '{user.username}' has been unpermitted from accessing your channels.")
 
 # Run the bot using the token from token.json
 PATH = "token.json"
