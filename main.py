@@ -1,14 +1,39 @@
 from interactions import Client, Intents, SlashContext, OptionType, listen, slash_command, slash_option, GuildCategory, Permissions, PermissionOverwrite, OverwriteType, Member
 import interactions
-from interactions.api.events import MemberAdd
+from interactions.api.events import MemberAdd, MessageCreate
 from functools import wraps
 import json
+from datetime import datetime, timezone
+import markdown
+
+
 
 bot = Client(
-    intents=Intents.GUILD_MEMBERS | Intents.DEFAULT,
+    intents=Intents.DEFAULT | Intents.GUILD_MEMBERS | Intents.MESSAGE_CONTENT,
     send_command_tracebacks=False,
-    fetch_members=True
+    fetch_members=True,
+    messages=True,
+    message_content=True
 )
+
+# TODO: Let the user setting up the bot for the server decide what to call the role everyone has (right now placeholder in code is "test")
+# TODO: Toggle reactions and Toggle comments
+# TODO: Create a maximum amount of channels to make
+# TODO: Add an @ in category names
+# TODO: RSS Implementation
+    # TODO: Initialize the RSS feed upon channel creation
+    # TODO: Add new posts as items
+    # TODO: RSS token system for private channels 
+
+# IDEAS:    
+# - Moderation permissions? possibly won't be needed
+# - Let people permit others to write in channels
+# - Reputation or community channel, some channel that other people can add to
+# - Optional features like a welcome message or auto responses or polls
+# - Let people make multiple categories?
+# - Role management, give people roles, let them emote to get roles, role can only affect permissions of there own channels/category
+# - Give a LLM autonomous control over it's own category, reading and responding to comments
+
 
 # When the discord bot is ready it will do all in this function
 @listen()
@@ -55,7 +80,60 @@ async def on_ready():
         )
         await on_member_join(event)
 
-    await simulate_member_add()
+    #await simulate_member_add()
+
+@listen(MessageCreate)
+async def an_event_handler(event: MessageCreate):
+    author = event.message.author               #@username
+    if author.discriminator != "0":
+        author = f"{author}#{author.discriminator}"
+    category = event.message.channel.name       # name of the category
+    created_at = event.message.created_at       # unicode time of creation
+    message = event.message.content             # raw text contents
+    guid = f"{event.message.guild.id}/{event.message.channel.id}/{event.message.id}"
+    link = f"https://discord.com/channels/{guid}"
+
+    # Check if the message has attachments
+    if event.message.attachments:
+        image_url = event.message.attachments[0].url  # First attachment as image
+
+    if event.message.attachments:
+        attachment = event.message.attachments[0]
+        enclosure = f'<enclosure url="{attachment.url}" length="{attachment.size}" type="{attachment.content_type}" />'
+
+    source = "Discord"
+
+
+
+
+    # Convert Unix timestamp to datetime object in UTC
+    if hasattr(created_at, 'timestamp'):
+        unix_timestamp = created_at.timestamp()
+    else:
+        unix_timestamp = created_at  # Assume it's already a Unix timestamp if not
+    dt = datetime.fromtimestamp(unix_timestamp, tz=timezone.utc)
+    pubDate = dt.strftime("%a, %d %b %Y %H:%M:%S UTC") # Format to RFC-822 style
+
+    # Covert message to html
+    description = markdown.markdown(message)
+
+    print(f"""
+        <title></title>
+        <guid>{guid}</guid>
+        <pubDate>{pubDate}</pubDate>
+        <link>{link}</link>
+        <author>{author}</author>
+        <category>{category}</category>
+        {enclosure if 'attachment' in locals() else ''}
+        <description>
+            <![CDATA[ 
+                {description}
+            ]]>
+        </description>
+        <source>{source}</source>
+    """)
+
+
 
 @listen(MemberAdd)
 async def on_member_join(event: MemberAdd):
